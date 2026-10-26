@@ -1,0 +1,58 @@
+[
+  {
+    "event_id": "won-evt-1001",
+    "opportunity_id": "opp-1001",
+    "event_type": "opportunity_won",
+    "timestamp": "2026-10-26T08:30:00Z",
+    "owner": "Avery Morgan",
+    "account": "Northstar Community Bank",
+    "region": "UK",
+    "customer_brief": "We need to reduce delays in retail customer onboarding. Analysts currently review identity documents and re-enter customer details across separate systems. We want to test document extraction and verification with a human review step, while keeping an audit trail and measuring onboarding turnaround time.",
+    "id": "opp-1001",
+    "company": "Northstar Community Bank",
+    "industry": "Financial services",
+    "brief": "We need to reduce delays in retail customer onboarding. Analysts currently review identity documents and re-enter customer details across separate systems. We want to test document extraction and verification with a human review step, while keeping an audit trail and measuring onboarding turnaround time."
+  },
+  {
+    "event_id": "won-evt-1002",
+    "opportunity_id": "opp-1002",
+    "event_type": "opportunity_won",
+    "timestamp": "2026-10-23T10:00:00Z",
+    "owner": "Samira Patel",
+    "account": "Cedar Ridge Finance",
+    "region": "India",
+    "customer_brief": "Our MSME lending team reviews applications using financial statements, bank transaction summaries, and manually maintained checklists. We want to explore a decision-support workflow that extracts application data, highlights missing evidence, and helps underwriters prioritize cases without making autonomous credit decisions.",
+    "id": "opp-1002",
+    "company": "Cedar Ridge Finance",
+    "industry": "Financial services",
+    "brief": "Our MSME lending team reviews applications using financial statements, bank transaction summaries, and manually maintained checklists. We want to explore a decision-support workflow that extracts application data, highlights missing evidence, and helps underwriters prioritize cases without making autonomous credit decisions."
+  },
+  {
+    "event_id": "won-evt-1003",
+    "opportunity_id": "opp-1003",
+    "event_type": "opportunity_won",
+    "timestamp": "2026-10-21T09:15:00Z",
+    "owner": "Jordan Lee",
+    "account": "Harborlight Mutual",
+    "region": "UK",
+    "customer_brief": "Claims handlers receive motor claims through email and a portal, then manually sort attachments and request missing information. We want to pilot claim intake classification, document summarization, and fraud-risk triage for human investigation, with clear explanations and no automated claim decisions.",
+    "id": "opp-1003",
+    "company": "Harborlight Mutual",
+    "industry": "Financial services",
+    "brief": "Claims handlers receive motor claims through email and a portal, then manually sort attachments and request missing information. We want to pilot claim intake classification, document summarization, and fraud-risk triage for human investigation, with clear explanations and no automated claim decisions."
+  },
+  {
+    "event_id": "won-evt-1004",
+    "opportunity_id": "opp-1004",
+    "event_type": "opportunity_won",
+    "timestamp": "2026-10-19T11:45:00Z",
+    "owner": "Rohan Desai",
+    "account": "Summit Payments Cooperative",
+    "region": "India",
+    "customer_brief": "Operations analysts investigate payment alerts from several queues and spend significant time assembling context. We want to test a fraud-triage workspace that groups related alerts, summarizes supporting evidence, and routes cases to analysts. All outcomes must remain subject to human review.",
+    "id": "opp-1004",
+    "company": "Summit Payments Cooperative",
+    "industry": "Financial services",
+    "brief": "Operations analysts investigate payment alerts from several queues and spend significant time assembling context. We want to test a fraud-triage workspace that groups related alerts, summarizes supporting evidence, and routes cases to analysts. All outcomes must remain subject to human review."
+  }
+]

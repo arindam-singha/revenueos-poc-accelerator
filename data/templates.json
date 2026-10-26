@@ -1,0 +1,222 @@
+[
+  {
+    "id": "template-crm-data",
+    "title": "Banking customer and relationship data quality pilot",
+    "region": "UK",
+    "use_case": "Customer data quality and relationship servicing",
+    "description": "Profile a bounded sample of customer and relationship records, surface duplicate or incomplete fields for staff review, and establish data-quality measures before considering downstream servicing or reporting use.",
+    "required_capabilities": [
+      "Permissioned sample-data access",
+      "Field-level profiling and duplicate detection",
+      "Human review and correction workflow",
+      "Audit logging and baseline reporting"
+    ],
+    "reusable_components": [
+      "Data-quality rules checklist",
+      "Customer-record review queue",
+      "Exception and audit log",
+      "Pilot measurement scorecard"
+    ],
+    "keywords": ["crm", "customer", "data quality", "records", "relationship", "audit", "banking", "forecast", "pipeline"]
+  },
+  {
+    "id": "template-uk-kyc",
+    "title": "UK retail KYC document intake and verification",
+    "region": "UK",
+    "use_case": "Know Your Customer (KYC)",
+    "description": "Prototype document intake, extraction of agreed identity fields, and analyst verification for a narrow onboarding cohort. Keep exception handling and final identity decisions with authorized staff.",
+    "required_capabilities": [
+      "Approved identity-document samples",
+      "Document classification and field extraction",
+      "Analyst verification and exception handling",
+      "Access controls, retention rules, and audit trail"
+    ],
+    "reusable_components": [
+      "Document intake and classification flow",
+      "Extracted-field review screen",
+      "Confidence and exception queue",
+      "KYC pilot audit checklist"
+    ],
+    "keywords": ["kyc", "identity", "onboarding", "documents", "verification", "customer"]
+  },
+  {
+    "id": "template-india-kyc",
+    "title": "India customer onboarding KYC assistance",
+    "region": "India",
+    "use_case": "Know Your Customer (KYC)",
+    "description": "Evaluate document extraction and completeness checks for an approved sample of onboarding cases. Confirm permitted document types, data handling, and institution-specific policy with the customer before configuration.",
+    "required_capabilities": [
+      "Customer-approved document samples",
+      "Configurable document and field checks",
+      "Human review for mismatches and low-confidence results",
+      "Policy-specific controls confirmed by the customer"
+    ],
+    "reusable_components": [
+      "Onboarding document checklist",
+      "Field-extraction review queue",
+      "Missing-evidence notification pattern",
+      "Exception tracking and audit events"
+    ],
+    "keywords": ["kyc", "india", "onboarding", "identity", "documents", "verification"]
+  },
+  {
+    "id": "template-uk-loan-underwriting",
+    "title": "UK SME loan underwriting decision support",
+    "region": "UK",
+    "use_case": "Loan underwriting",
+    "description": "Assist underwriters by organizing approved application documents, extracting agreed evidence fields, and highlighting missing information. The prototype supports review and does not make lending decisions.",
+    "required_capabilities": [
+      "Permissioned application and financial-document sample",
+      "Document parsing and evidence extraction",
+      "Underwriter review with source references",
+      "Clear separation from automated credit decisions"
+    ],
+    "reusable_components": [
+      "Application completeness checklist",
+      "Evidence summary with source links",
+      "Underwriter case-prioritization queue",
+      "Decision-support evaluation scorecard"
+    ],
+    "keywords": ["loan", "underwriting", "sme", "credit", "application", "financial statements"]
+  },
+  {
+    "id": "template-india-loan-underwriting",
+    "title": "India MSME loan application review",
+    "region": "India",
+    "use_case": "Loan underwriting",
+    "description": "Prototype application triage and evidence organization for MSME lending cases using customer-approved data. Underwriters retain authority for eligibility assessment and credit decisions.",
+    "required_capabilities": [
+      "Approved MSME application and transaction-summary samples",
+      "Configurable evidence and completeness checks",
+      "Case prioritization with explainable factors",
+      "Human underwriting review and access logging"
+    ],
+    "reusable_components": [
+      "Application document checklist",
+      "Missing-evidence queue",
+      "Underwriter case summary",
+      "Review and outcome capture form"
+    ],
+    "keywords": ["india", "msme", "loan", "underwriting", "credit", "application", "bank"]
+  },
+  {
+    "id": "template-uk-insurance-claims",
+    "title": "UK insurance claims intake and triage",
+    "region": "UK",
+    "use_case": "Insurance claims",
+    "description": "Organize first-notice-of-loss submissions, classify attachments, summarize claim evidence, and identify missing information for handler review. Coverage and settlement decisions remain with claims staff.",
+    "required_capabilities": [
+      "Approved historical or synthetic claim samples",
+      "Intake classification and document summarization",
+      "Missing-information and exception routing",
+      "Handler review with traceable source material"
+    ],
+    "reusable_components": [
+      "First-notice-of-loss intake flow",
+      "Claim attachment classifier",
+      "Evidence summary and missing-item checklist",
+      "Claims-handler pilot scorecard"
+    ],
+    "keywords": ["insurance", "claims", "claim", "intake", "triage", "documents", "loss"]
+  },
+  {
+    "id": "template-india-insurance-claims",
+    "title": "India motor insurance claims assistance",
+    "region": "India",
+    "use_case": "Insurance claims",
+    "description": "Test intake classification, document checklist completion, and human-reviewed claim routing for a bounded motor-claims sample. Validate local product and process rules with the insurer.",
+    "required_capabilities": [
+      "Approved motor-claim sample and document types",
+      "Configurable intake and checklist rules",
+      "Human review for routing and fraud indicators",
+      "Customer-approved data retention and access controls"
+    ],
+    "reusable_components": [
+      "Motor-claim intake checklist",
+      "Attachment classification pattern",
+      "Handler assignment queue",
+      "Exception and fraud-review handoff"
+    ],
+    "keywords": ["india", "motor", "insurance", "claims", "claim", "fraud", "documents"]
+  },
+  {
+    "id": "template-uk-regulatory-reporting",
+    "title": "UK regulatory reporting data reconciliation",
+    "region": "UK",
+    "use_case": "Regulatory reporting",
+    "description": "Reconcile a limited set of approved source fields against a customer-provided reporting specification, flag discrepancies, and preserve reviewer sign-off. Reporting interpretation and submission remain customer-owned.",
+    "required_capabilities": [
+      "Customer-approved reporting specification",
+      "Controlled sample from relevant source systems",
+      "Reconciliation rules and discrepancy traceability",
+      "Compliance reviewer sign-off and versioned evidence"
+    ],
+    "reusable_components": [
+      "Source-to-report field mapping",
+      "Reconciliation exception queue",
+      "Evidence and reviewer sign-off log",
+      "Reporting-cycle measurement template"
+    ],
+    "keywords": ["uk", "regulatory", "reporting", "reconciliation", "compliance", "audit"]
+  },
+  {
+    "id": "template-india-regulatory-reporting",
+    "title": "India regulatory reporting preparation checks",
+    "region": "India",
+    "use_case": "Regulatory reporting",
+    "description": "Prototype completeness and consistency checks for a customer-selected reporting dataset and specification. The institution confirms applicable obligations and retains control of interpretation and submission.",
+    "required_capabilities": [
+      "Customer-confirmed reporting specification and sample",
+      "Configurable completeness and consistency checks",
+      "Traceable exceptions and source references",
+      "Authorized compliance review before any use"
+    ],
+    "reusable_components": [
+      "Reporting field checklist",
+      "Data-quality validation rules",
+      "Exception review queue",
+      "Approval and audit evidence log"
+    ],
+    "keywords": ["india", "regulatory", "reporting", "compliance", "data quality", "audit"]
+  },
+  {
+    "id": "template-fraud-triage",
+    "title": "Financial crime alert investigation triage",
+    "region": "UK and India",
+    "use_case": "Fraud triage",
+    "description": "Group related alerts and assemble investigator context for a human-led review pilot. Use approved test data, preserve evidence lineage, and do not automatically block transactions or determine customer outcomes.",
+    "required_capabilities": [
+      "Approved, access-controlled alert sample",
+      "Alert grouping and contextual summarization",
+      "Investigator review, escalation, and disposition capture",
+      "Evidence lineage and audit logging"
+    ],
+    "reusable_components": [
+      "Alert prioritization queue",
+      "Case context summary",
+      "Investigation handoff checklist",
+      "Analyst feedback and disposition capture"
+    ],
+    "keywords": ["fraud", "triage", "alerts", "investigation", "risk", "analyst", "financial crime"]
+  },
+  {
+    "id": "template-customer-service-copilot",
+    "title": "Financial services customer-service copilot",
+    "region": "UK and India",
+    "use_case": "Customer-service copilot",
+    "description": "Help service agents find approved knowledge and draft responses for review in a bounded set of service scenarios. Agents approve all customer-facing responses and escalate sensitive or uncertain cases.",
+    "required_capabilities": [
+      "Approved and current knowledge sources",
+      "Role-appropriate access and answer citations",
+      "Agent review, editing, and escalation",
+      "Quality evaluation and customer-data safeguards"
+    ],
+    "reusable_components": [
+      "Knowledge retrieval and answer citation pattern",
+      "Agent response drafting workspace",
+      "Escalation and feedback controls",
+      "Answer quality review scorecard"
+    ],
+    "keywords": ["customer service", "copilot", "service", "agent", "knowledge", "support", "response"]
+  }
+]
