@@ -21,7 +21,7 @@ def _connect(database_path):
         connection.close()
 
 
-def initialize_database(database_path):
+def initialize_database(database_path, briefs_path=None):
     with _connect(database_path) as connection:
         connection.executescript(
             """
@@ -54,6 +54,16 @@ def initialize_database(database_path):
                 edit_details TEXT,
                 rejection_reason TEXT
             );
+            CREATE TABLE IF NOT EXISTS opportunity_events (
+                opportunity_id TEXT PRIMARY KEY,
+                event_id TEXT NOT NULL UNIQUE,
+                event_type TEXT NOT NULL,
+                event_timestamp TEXT NOT NULL,
+                owner TEXT NOT NULL,
+                account TEXT NOT NULL,
+                region TEXT NOT NULL,
+                customer_brief TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS sla_triggers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 brief_id INTEGER NOT NULL REFERENCES briefs(id),
@@ -80,6 +90,79 @@ def initialize_database(database_path):
                 connection.execute(
                     f"ALTER TABLE briefs ADD COLUMN {column_name} TEXT"
                 )
+    if briefs_path is not None:
+        seed_opportunity_events(database_path, briefs_path)
+
+
+def seed_opportunity_events(database_path, briefs_path):
+    path = Path(briefs_path)
+    with path.open(encoding="utf-8") as file:
+        events = json.load(file)
+    if not isinstance(events, list):
+        raise ValueError("Opportunity event seed data must be a JSON array.")
+
+    required_fields = {
+        "opportunity_id",
+        "timestamp",
+        "owner",
+        "account",
+        "region",
+        "customer_brief",
+    }
+    seen_ids = set()
+    for event in events:
+        if not isinstance(event, dict) or not required_fields.issubset(event):
+            raise ValueError(
+                "Each opportunity event must include opportunity_id, timestamp, "
+                "owner, account, region, and customer_brief."
+            )
+        opportunity_id = event["opportunity_id"]
+        if not isinstance(opportunity_id, str) or not opportunity_id.strip():
+            raise ValueError("Opportunity IDs must be non-empty strings.")
+        if opportunity_id in seen_ids:
+            raise ValueError(f"Duplicate opportunity ID in seed data: {opportunity_id}")
+        seen_ids.add(opportunity_id)
+        for field in ("owner", "account", "region", "customer_brief"):
+            if not isinstance(event[field], str) or not event[field].strip():
+                raise ValueError(f"Opportunity event field {field} must not be empty.")
+        get_sla_deadlines(event["timestamp"])
+
+    with _connect(database_path) as connection:
+        connection.executemany(
+            """
+            INSERT OR IGNORE INTO opportunity_events (
+                opportunity_id, event_id, event_type, event_timestamp,
+                owner, account, region, customer_brief
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    event["opportunity_id"],
+                    event.get("event_id", event["opportunity_id"]),
+                    event.get("event_type", "opportunity_won"),
+                    event["timestamp"],
+                    event["owner"].strip(),
+                    event["account"].strip(),
+                    event["region"].strip(),
+                    event["customer_brief"].strip(),
+                )
+                for event in events
+            ],
+        )
+
+
+def get_opportunity_events(database_path):
+    with _connect(database_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT opportunity_id, event_id, event_type, event_timestamp,
+                   owner, account, region, customer_brief
+            FROM opportunity_events
+            ORDER BY event_timestamp DESC, opportunity_id
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def save_brief(
@@ -97,6 +180,25 @@ def save_brief(
     get_sla_deadlines(event_timestamp)
     created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with _connect(database_path) as connection:
+        if opportunity_id:
+            source_event = connection.execute(
+                """
+                SELECT event_timestamp, owner, account, region
+                FROM opportunity_events
+                WHERE opportunity_id = ?
+                """,
+                (opportunity_id,),
+            ).fetchone()
+            if source_event is not None and (
+                event_timestamp != source_event["event_timestamp"]
+                or owner.strip() != source_event["owner"]
+                or company.strip() != source_event["account"]
+                or region != source_event["region"]
+            ):
+                raise ValueError(
+                    "Opportunity account, owner, region, and event timestamp must "
+                    "match the selected source event."
+                )
         cursor = connection.execute(
             """
             INSERT INTO briefs (

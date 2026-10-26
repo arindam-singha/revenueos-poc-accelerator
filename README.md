@@ -5,6 +5,7 @@ A small Streamlit MVP that turns a customer brief into a structured, evidence-in
 ## Features
 
 - Brief intake with sample customer briefs.
+- Idempotent SQLite seeding of synthetic won-opportunity events with opportunity ID, original event timestamp, owner, account, region, and customer brief.
 - Lightweight keyword-overlap retrieval over sample briefs and POC templates.
 - Deterministic, structured plan generation when no API key is configured.
 - Optional LLM-generated plan using an OpenAI-compatible Chat Completions endpoint.
@@ -23,7 +24,7 @@ python -m pip install -r requirements.txt
 streamlit run app.py
 ```
 
-The app creates `data/revenueos.db` on first run. To use LLM generation, set `OPENAI_API_KEY` in the environment before starting Streamlit. `OPENAI_MODEL` and `OPENAI_BASE_URL` can optionally override the defaults. API or invalid-response errors are surfaced in the UI; they are not silently presented as successful fallback output.
+The app creates `data/revenueos.db` and seeds synthetic opportunity events from `data/briefs.json` on first run. Repeated initialization does not duplicate seeded opportunity IDs. Selecting a sample loads its source event details into the intake form; for seeded opportunities, account, owner, region, and event timestamp must match the stored source event. To use LLM generation, set `OPENAI_API_KEY` in the environment before starting Streamlit. `OPENAI_MODEL` and `OPENAI_BASE_URL` can optionally override the defaults. API or invalid-response errors are surfaced in the UI; they are not silently presented as successful fallback output.
 
 ### Pickup SLA
 

@@ -1,4 +1,5 @@
 from agent import generate_plan
+from pathlib import Path
 from database import (
     initialize_database,
     record_review_decision,
@@ -22,7 +23,7 @@ def create_plan(
     region=None,
     api_key=None,
 ):
-    initialize_database(database_path)
+    initialize_database(database_path, Path(data_dir) / "briefs.json")
     brief_id = save_brief(
         database_path,
         company,

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from agent import generate_plan
 from database import (
+    get_opportunity_events,
     get_plan,
     get_recent_plans,
     get_review_decisions,
@@ -129,6 +130,74 @@ class AgentTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_seeded_opportunity_events_are_repeatable_and_complete(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            database_path = Path(temporary_directory) / "seeded.sqlite3"
+            seed_path = DATA_DIR / "briefs.json"
+            initialize_database(database_path, seed_path)
+            initialize_database(database_path, seed_path)
+
+            events = get_opportunity_events(database_path)
+            self.assertGreaterEqual(len(events), 3)
+            self.assertEqual(
+                len(events),
+                len({event["opportunity_id"] for event in events}),
+            )
+            for event in events:
+                for field in (
+                    "opportunity_id",
+                    "event_timestamp",
+                    "owner",
+                    "account",
+                    "region",
+                    "customer_brief",
+                ):
+                    self.assertTrue(event[field], field)
+
+    def test_plan_intake_uses_seeded_event_metadata(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            database_path = Path(temporary_directory) / "seeded-plan.sqlite3"
+            event = {
+                "opportunity_id": "opp-1001",
+                "timestamp": "2026-10-26T08:30:00Z",
+                "owner": "Avery Morgan",
+                "account": "Northstar Community Bank",
+                "region": "UK",
+                "customer_brief": "We need to reduce delays in retail customer onboarding.",
+            }
+            _, plan_id = create_plan(
+                company=event["account"],
+                industry="Financial services",
+                brief=event["customer_brief"],
+                database_path=database_path,
+                data_dir=DATA_DIR,
+                event_timestamp=event["timestamp"],
+                owner=event["owner"],
+                opportunity_id=event["opportunity_id"],
+                region=event["region"],
+                api_key="",
+            )
+            plan = get_plan(database_path, plan_id)
+            self.assertEqual(event["opportunity_id"], plan["opportunity_id"])
+            self.assertEqual(event["timestamp"], plan["event_timestamp"])
+            self.assertEqual(event["owner"], plan["owner"])
+            self.assertEqual(event["account"], plan["company"])
+            self.assertEqual(event["region"], plan["region"])
+
+            with self.assertRaisesRegex(ValueError, "must match the selected source event"):
+                create_plan(
+                    company=event["account"],
+                    industry="Financial services",
+                    brief=event["customer_brief"],
+                    database_path=database_path,
+                    data_dir=DATA_DIR,
+                    event_timestamp="2026-10-27T08:30:00Z",
+                    owner=event["owner"],
+                    opportunity_id=event["opportunity_id"],
+                    region=event["region"],
+                    api_key="",
+                )
+
     def test_creates_persists_and_lists_plan(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             database_path = Path(temporary_directory) / "test.sqlite3"

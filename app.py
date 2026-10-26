@@ -7,6 +7,7 @@ import streamlit as st
 from agent import AgentError
 from database import (
     get_plan,
+    get_opportunity_events,
     get_recent_plans,
     get_review_decisions,
     get_sla_triggers,
@@ -23,8 +24,19 @@ DATABASE_PATH = BASE_DIR / "data" / "revenueos.db"
 
 
 def load_examples():
-    with (DATA_DIR / "briefs.json").open(encoding="utf-8") as file:
-        return json.load(file)
+    return [
+        {
+            "opportunity_id": event["opportunity_id"],
+            "timestamp": event["event_timestamp"],
+            "owner": event["owner"],
+            "account": event["account"],
+            "region": event["region"],
+            "brief": event["customer_brief"],
+            "company": event["account"],
+            "industry": "Financial services",
+        }
+        for event in get_opportunity_events(DATABASE_PATH)
+    ]
 
 
 def load_selected_example():
@@ -37,10 +49,11 @@ def load_selected_example():
         st.session_state.owner = example["owner"]
         st.session_state.region = example["region"]
         st.session_state.event_timestamp = example["timestamp"]
+        st.session_state.account = example["account"]
 
 
 st.set_page_config(page_title="RevenueOS POC Accelerator", page_icon="🚀", layout="wide")
-initialize_database(DATABASE_PATH)
+initialize_database(DATABASE_PATH, DATA_DIR / "briefs.json")
 
 st.title("RevenueOS POC Accelerator")
 st.caption("Turn a customer brief into a practical, evidence-informed POC plan.")
@@ -51,7 +64,10 @@ with st.sidebar:
     st.selectbox(
         "Example",
         options=examples,
-        format_func=lambda example: f'{example["company"]} — {example["industry"]}',
+        format_func=lambda example: (
+            f'{example["opportunity_id"]} · {example["account"]} — '
+            f'{example["region"]}'
+        ),
         key="example_id",
         index=None,
     )
@@ -64,7 +80,11 @@ with st.sidebar:
 
 with st.form("brief_form"):
     st.subheader("Customer brief")
-    company = st.text_input("Company", key="company", placeholder="Acme Corp")
+    company = st.text_input(
+        "Account",
+        key="company",
+        placeholder="Acme Corp",
+    )
     industry = st.text_input(
         "Industry", key="industry", placeholder="B2B SaaS"
     )
