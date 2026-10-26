@@ -21,9 +21,12 @@ def _template_matches(evidence):
 def _evidence_items(evidence):
     return [
         {
+            "id": item.get("id"),
+            "type": item.get("type"),
             "title": item["title"],
             "reason": item["reason"],
             "score": round(item["score"], 3),
+            "content": item.get("content"),
         }
         for item in evidence[:3]
     ]

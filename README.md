@@ -12,6 +12,7 @@ A small Streamlit MVP that turns a customer brief into a structured, evidence-in
 - SQLite storage for opportunity event timestamps, plans, review decisions, and SLA breach triggers.
 - Two-business-day pickup SLA calculated in US Eastern time with Green, Amber, and Red statuses.
 - US Solution Architect accept, edit, and reject actions, with timestamped SQLite decision history.
+- One-screen opportunity queue, full retrieved-template match details, SLA trigger log, and template reuse/acceptance counts.
 - JSON plan download and recent-plan list.
 
 ## Quick start
@@ -33,6 +34,8 @@ The SLA clock starts at the opportunity's original ISO 8601 event timestamp, inc
 New plans require both an opportunity owner and an explicit timezone-aware original event timestamp. Legacy database rows without these fields show SLA as unavailable rather than deriving it from plan creation.
 
 Generate a plan, select it from the current-plan list, then use the US Solution Architect review controls to accept it, save edited plan JSON, or reject it with a reason. The plan status and timestamped decision history are reloaded from SQLite after each action.
+
+The opportunity queue shows each synthetic event, owner, region, original event time, business-day age, SLA status, and plan state. Select a queue item and load it into the brief form. Retrieved templates include their relevance score, match explanation, capabilities, and reusable components. Template reuse metrics count references in saved plan evidence and accepted/rejected plan outcomes; they are descriptive and do not automatically change retrieval rankings.
 
 ## Tests
 

@@ -8,9 +8,11 @@ from agent import AgentError
 from database import (
     get_plan,
     get_opportunity_events,
+    get_opportunity_queue,
     get_recent_plans,
     get_review_decisions,
     get_sla_triggers,
+    get_template_reuse_metrics,
     initialize_database,
     sync_sla_triggers,
 )
@@ -23,33 +25,25 @@ DATA_DIR = BASE_DIR / "data"
 DATABASE_PATH = BASE_DIR / "data" / "revenueos.db"
 
 
-def load_examples():
-    return [
-        {
-            "opportunity_id": event["opportunity_id"],
-            "timestamp": event["event_timestamp"],
-            "owner": event["owner"],
-            "account": event["account"],
-            "region": event["region"],
-            "brief": event["customer_brief"],
-            "company": event["account"],
-            "industry": "Financial services",
-        }
-        for event in get_opportunity_events(DATABASE_PATH)
-    ]
-
-
 def load_selected_example():
-    example = st.session_state.example_id
-    if example:
-        st.session_state.company = example["company"]
-        st.session_state.industry = example["industry"]
-        st.session_state.brief = example["brief"]
-        st.session_state.opportunity_id = example["opportunity_id"]
-        st.session_state.owner = example["owner"]
-        st.session_state.region = example["region"]
-        st.session_state.event_timestamp = example["timestamp"]
-        st.session_state.account = example["account"]
+    opportunity_id = st.session_state.queue_opportunity_id
+    example = next(
+        (
+            event
+            for event in get_opportunity_events(DATABASE_PATH)
+            if event["opportunity_id"] == opportunity_id
+        ),
+        None,
+    )
+    if example is None:
+        return
+    st.session_state.company = example["account"]
+    st.session_state.industry = "Financial services"
+    st.session_state.brief = example["customer_brief"]
+    st.session_state.opportunity_id = example["opportunity_id"]
+    st.session_state.owner = example["owner"]
+    st.session_state.region = example["region"]
+    st.session_state.event_timestamp = example["event_timestamp"]
 
 
 st.set_page_config(page_title="RevenueOS POC Accelerator", page_icon="🚀", layout="wide")
@@ -58,20 +52,60 @@ initialize_database(DATABASE_PATH, DATA_DIR / "briefs.json")
 st.title("RevenueOS POC Accelerator")
 st.caption("Turn a customer brief into a practical, evidence-informed POC plan.")
 
-with st.sidebar:
-    st.subheader("Load a sample brief")
-    examples = load_examples()
+opportunity_queue = get_opportunity_queue(DATABASE_PATH)
+st.header("Opportunity queue")
+if opportunity_queue:
+    queue_display = []
+    for event in opportunity_queue:
+        queue_display.append(
+            {
+                "Opportunity": event["opportunity_id"],
+                "Account": event["account"],
+                "Region": event["region"],
+                "Owner": event["owner"],
+                "Event time": event["event_timestamp"],
+                "Business-day age": get_business_day_age(event["event_timestamp"]),
+                "SLA": get_sla_status(
+                    event["event_timestamp"],
+                    first_pickup_at=event["first_pickup_at"],
+                ),
+                "Plan": event["latest_plan_status"] or "Not started",
+            }
+        )
+    st.dataframe(queue_display, hide_index=True, use_container_width=True)
+    opportunity_ids = [event["opportunity_id"] for event in opportunity_queue]
+    event_by_id = {
+        event["opportunity_id"]: event for event in opportunity_queue
+    }
     st.selectbox(
-        "Example",
-        options=examples,
-        format_func=lambda example: (
-            f'{example["opportunity_id"]} · {example["account"]} — '
-            f'{example["region"]}'
+        "Opportunity details",
+        options=opportunity_ids,
+        format_func=lambda opportunity_id: (
+            f'{opportunity_id} · {event_by_id[opportunity_id]["account"]}'
         ),
-        key="example_id",
-        index=None,
+        key="queue_opportunity_id",
     )
-    st.button("Load selected example", on_click=load_selected_example)
+    selected_event = event_by_id[st.session_state.queue_opportunity_id]
+    details_column, load_column = st.columns([4, 1])
+    with details_column:
+        st.write(
+            f'**{selected_event["account"]}** · {selected_event["region"]} · '
+            f'Owner: {selected_event["owner"]} · '
+            f'Event: {selected_event["event_timestamp"]} · '
+            f'{selected_event["event_type"]} ({selected_event["event_id"]})'
+        )
+        st.write(selected_event["customer_brief"])
+    with load_column:
+        st.button(
+            "Load brief",
+            on_click=load_selected_example,
+            use_container_width=True,
+        )
+else:
+    st.info("No opportunity events are available.")
+
+with st.sidebar:
+    st.subheader("Plan generation")
     st.divider()
     st.caption(
         "Planning is available without an API key. Set OPENAI_API_KEY to enable "
@@ -221,14 +255,41 @@ if active_plan:
         for item in plan["next_steps"]:
             st.markdown(f"- {item}")
 
-    if plan["evidence"]:
-        with st.expander("Retrieved playbook references"):
-            for item in plan["evidence"]:
+    template_matches = [
+        item for item in plan.get("evidence", [])
+        if item.get("type") == "template"
+    ]
+    st.subheader("Retrieved templates")
+    if template_matches:
+        for item in template_matches:
+            score = item.get("score")
+            score_text = f'{score:.3f}' if score is not None else "n/a"
+            with st.expander(f'{item["title"]} · score {score_text}'):
+                st.write(f'Match explanation: {item["reason"]}')
+                template = item.get("content")
+                if template:
+                    st.write(template.get("description", ""))
+                    if template.get("required_capabilities"):
+                        st.markdown("**Required capabilities**")
+                        for capability in template["required_capabilities"]:
+                            st.markdown(f"- {capability}")
+                    if template.get("reusable_components"):
+                        st.markdown("**Reusable components**")
+                        for component in template["reusable_components"]:
+                            st.markdown(f"- {component}")
+    else:
+        st.info("No reusable template matched this plan.")
+
+    example_matches = [
+        item for item in plan.get("evidence", [])
+        if item.get("type") == "example"
+    ]
+    if example_matches:
+        with st.expander("Related opportunity examples"):
+            for item in example_matches:
                 score = item.get("score")
-                score_text = f" · relevance {score:.3f}" if score is not None else ""
-                st.markdown(
-                    f'**{item["title"]}**{score_text} — {item["reason"]}'
-                )
+                score_text = f" · score {score:.3f}" if score is not None else ""
+                st.markdown(f'**{item["title"]}**{score_text} — {item["reason"]}')
 
     if plan.get("required_data_integrations"):
         st.subheader("Required data and integrations")
@@ -355,3 +416,15 @@ else:
             st.write(f'Breach timestamp: {trigger["breach_timestamp"]}')
             st.write(f'Draft reference: {trigger["current_draft_reference"]}')
             st.json(json.loads(trigger["draft_json"]))
+
+st.divider()
+st.header("Template reuse metrics")
+reuse_metrics = get_template_reuse_metrics(DATABASE_PATH)
+if not reuse_metrics:
+    st.info("Template reuse metrics will appear after plans use retrieved templates.")
+else:
+    st.caption(
+        "Counts are based on saved plan evidence. These are descriptive reuse metrics; "
+        "review feedback does not automatically alter retrieval ranking."
+    )
+    st.dataframe(reuse_metrics, hide_index=True, use_container_width=True)

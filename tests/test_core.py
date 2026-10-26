@@ -3,14 +3,17 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from agent import generate_plan
 from database import (
     get_opportunity_events,
+    get_opportunity_queue,
     get_plan,
     get_recent_plans,
     get_review_decisions,
     get_sla_triggers,
+    get_template_reuse_metrics,
     initialize_database,
     sync_sla_triggers,
 )
@@ -37,7 +40,10 @@ class RetrievalTests(unittest.TestCase):
         )
         self.assertTrue(results)
         self.assertEqual("template-crm-data", results[0]["id"])
-        self.assertIn("score", results[0])
+        self.assertGreater(results[0]["score"], 0)
+        self.assertLessEqual(results[0]["score"], 1)
+        self.assertTrue(results[0]["reason"].startswith("Matched: "))
+        self.assertTrue(results[0]["reason"].removeprefix("Matched: ").strip())
 
     def test_empty_query_returns_no_results(self):
         self.assertEqual([], retrieve_context("the and to", DATA_DIR))
@@ -45,17 +51,42 @@ class RetrievalTests(unittest.TestCase):
 
 class AgentTests(unittest.TestCase):
     def test_no_key_uses_complete_deterministic_plan(self):
-        plan = generate_plan(
-            company="Acme",
-            industry="B2B SaaS",
-            brief="We need CRM data quality and pipeline forecasting.",
-            evidence=[],
-            api_key="",
-        )
+        with patch.dict("os.environ", {}, clear=True):
+            plan = generate_plan(
+                company="Acme",
+                industry="B2B SaaS",
+                brief="We need CRM data quality and pipeline forecasting.",
+                evidence=[],
+            )
         self.assertEqual("deterministic_fallback", plan["generation_mode"])
         self.assertTrue(plan["phases"])
         self.assertTrue(plan["success_metrics"])
         self.assertTrue(any("CRM" in item for item in plan["recommended_scope"]))
+
+    def test_unmatched_brief_uses_explicit_generic_offline_plan(self):
+        brief = "We need an unusual bespoke workflow for a quartz telescope."
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            isolated_data_dir = Path(temporary_directory)
+            (isolated_data_dir / "templates.json").write_text("[]", encoding="utf-8")
+            (isolated_data_dir / "briefs.json").write_text("[]", encoding="utf-8")
+            evidence = retrieve_context(brief, isolated_data_dir)
+            self.assertEqual([], evidence)
+
+            with patch.dict("os.environ", {}, clear=True):
+                plan = generate_plan(
+                    company="Acme",
+                    industry="Financial services",
+                    brief=brief,
+                    evidence=evidence,
+                )
+
+        self.assertEqual("deterministic_fallback", plan["generation_mode"])
+        self.assertIn(
+            "No suitable reusable template was identified",
+            plan["proposed_solution"],
+        )
+        self.assertTrue(plan["phases"])
+        self.assertTrue(plan["required_data_integrations"])
 
     def test_template_content_changes_substantive_plan_fields(self):
         brief = "We need to improve customer onboarding and review identity documents."
@@ -163,7 +194,14 @@ class WorkflowTests(unittest.TestCase):
                 "owner": "Avery Morgan",
                 "account": "Northstar Community Bank",
                 "region": "UK",
-                "customer_brief": "We need to reduce delays in retail customer onboarding.",
+                "customer_brief": (
+                    "We need to reduce delays in retail customer onboarding. "
+                    "Analysts currently review identity documents and re-enter "
+                    "customer details across separate systems. We want to test "
+                    "document extraction and verification with a human review "
+                    "step, while keeping an audit trail and measuring onboarding "
+                    "turnaround time."
+                ),
             }
             _, plan_id = create_plan(
                 company=event["account"],
@@ -197,6 +235,55 @@ class WorkflowTests(unittest.TestCase):
                     region=event["region"],
                     api_key="",
                 )
+
+    def test_dashboard_queue_and_template_reuse_metrics(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            database_path = Path(temporary_directory) / "dashboard-data.sqlite3"
+            event = next(
+                item for item in json.loads(
+                    (DATA_DIR / "briefs.json").read_text(encoding="utf-8")
+                )
+                if item["opportunity_id"] == "opp-1001"
+            )
+            plan, plan_id = create_plan(
+                company=event["account"],
+                industry="Financial services",
+                brief=event["customer_brief"],
+                database_path=database_path,
+                data_dir=DATA_DIR,
+                event_timestamp=event["timestamp"],
+                owner=event["owner"],
+                opportunity_id=event["opportunity_id"],
+                region=event["region"],
+                api_key="",
+            )
+
+            queue = get_opportunity_queue(database_path)
+            queued = next(
+                item for item in queue
+                if item["opportunity_id"] == event["opportunity_id"]
+            )
+            self.assertEqual(plan_id, queued["latest_plan_id"])
+            self.assertEqual("open", queued["latest_plan_status"])
+            self.assertEqual(event["account"], queued["account"])
+
+            metrics = get_template_reuse_metrics(database_path)
+            matched_template_ids = {
+                item["id"]
+                for item in plan["evidence"]
+                if item.get("type") == "template"
+            }
+            self.assertTrue(matched_template_ids)
+            self.assertEqual(
+                matched_template_ids,
+                {item["template_id"] for item in metrics},
+            )
+            self.assertTrue(all(item["reuse_count"] == 1 for item in metrics))
+            self.assertTrue(all(item["accepted_count"] == 0 for item in metrics))
+
+            review_plan(database_path, plan_id, "accept")
+            accepted_metrics = get_template_reuse_metrics(database_path)
+            self.assertTrue(all(item["accepted_count"] == 1 for item in accepted_metrics))
 
     def test_creates_persists_and_lists_plan(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -295,6 +382,18 @@ class WorkflowTests(unittest.TestCase):
                 decisions[1]["edit_details"],
             )
 
+            initialize_database(database_path)
+            reconnected_plan = get_plan(database_path, plan_id)
+            reconnected_decisions = get_review_decisions(database_path, plan_id)
+            self.assertEqual("rejected", reconnected_plan["status"])
+            self.assertEqual(
+                ["reject", "edit", "accept"],
+                [decision["decision"] for decision in reconnected_decisions],
+            )
+            self.assertTrue(
+                all(decision["timestamp"] for decision in reconnected_decisions)
+            )
+
     def test_invalid_plan_or_decision_does_not_write_review_event(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             database_path = Path(temporary_directory) / "invalid-review.sqlite3"
@@ -363,6 +462,24 @@ class SlaTests(unittest.TestCase):
                 event_timestamp,
                 now=datetime.fromisoformat("2026-10-27T15:00:00-04:00"),
             ),
+        )
+        self.assertEqual(
+            "Green",
+            get_sla_status(
+                event_timestamp,
+                now=datetime.fromisoformat("2026-10-28T12:00:00-04:00"),
+                first_pickup_at="2026-10-27T15:00:00-04:00",
+            ),
+            "Pickup exactly at the two-business-day deadline is on time.",
+        )
+        self.assertEqual(
+            "Red",
+            get_sla_status(
+                event_timestamp,
+                now=datetime.fromisoformat("2026-10-28T12:00:00-04:00"),
+                first_pickup_at="2026-10-27T15:00:01-04:00",
+            ),
+            "Pickup one second after the deadline is late.",
         )
         self.assertEqual(
             "Green",

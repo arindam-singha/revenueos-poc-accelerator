@@ -165,6 +165,82 @@ def get_opportunity_events(database_path):
     return [dict(row) for row in rows]
 
 
+def get_template_reuse_metrics(database_path):
+    with _connect(database_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT plans.plan_json, plans.status
+            FROM plans
+            ORDER BY plans.created_at, plans.id
+            """
+        ).fetchall()
+
+    metrics = {}
+    for row in rows:
+        plan = json.loads(row["plan_json"])
+        for evidence in plan.get("evidence", []):
+            if evidence.get("type") != "template" or not evidence.get("id"):
+                continue
+            metric = metrics.setdefault(
+                evidence["id"],
+                {
+                    "template_id": evidence["id"],
+                    "title": evidence.get("title", evidence["id"]),
+                    "reuse_count": 0,
+                    "accepted_count": 0,
+                    "rejected_count": 0,
+                },
+            )
+            metric["reuse_count"] += 1
+            if row["status"] == "accepted":
+                metric["accepted_count"] += 1
+            elif row["status"] == "rejected":
+                metric["rejected_count"] += 1
+    return sorted(
+        metrics.values(),
+        key=lambda item: (-item["reuse_count"], item["title"]),
+    )
+
+
+def get_opportunity_queue(database_path):
+    with _connect(database_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT opportunity_events.opportunity_id, opportunity_events.event_id,
+                   opportunity_events.event_type, opportunity_events.event_timestamp,
+                   opportunity_events.owner, opportunity_events.account,
+                   opportunity_events.region, opportunity_events.customer_brief,
+                   (
+                       SELECT plans.id
+                       FROM plans
+                       JOIN briefs ON briefs.id = plans.brief_id
+                       WHERE briefs.opportunity_id = opportunity_events.opportunity_id
+                       ORDER BY plans.created_at DESC, plans.id DESC
+                       LIMIT 1
+                   ) AS latest_plan_id,
+                   (
+                       SELECT plans.status
+                       FROM plans
+                       JOIN briefs ON briefs.id = plans.brief_id
+                       WHERE briefs.opportunity_id = opportunity_events.opportunity_id
+                       ORDER BY plans.created_at DESC, plans.id DESC
+                       LIMIT 1
+                   ) AS latest_plan_status,
+                   (
+                       SELECT MIN(review_decisions.timestamp)
+                       FROM plans
+                       JOIN briefs ON briefs.id = plans.brief_id
+                       JOIN review_decisions ON review_decisions.plan_id = plans.id
+                       WHERE briefs.opportunity_id = opportunity_events.opportunity_id
+                   ) AS first_pickup_at
+            FROM opportunity_events
+            ORDER BY opportunity_events.event_timestamp DESC,
+                     opportunity_events.opportunity_id
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def save_brief(
     database_path,
     company,
@@ -183,7 +259,7 @@ def save_brief(
         if opportunity_id:
             source_event = connection.execute(
                 """
-                SELECT event_timestamp, owner, account, region
+                SELECT event_timestamp, owner, account, region, customer_brief
                 FROM opportunity_events
                 WHERE opportunity_id = ?
                 """,
@@ -194,10 +270,11 @@ def save_brief(
                 or owner.strip() != source_event["owner"]
                 or company.strip() != source_event["account"]
                 or region != source_event["region"]
+                or brief_text.strip() != source_event["customer_brief"]
             ):
                 raise ValueError(
-                    "Opportunity account, owner, region, and event timestamp must "
-                    "match the selected source event."
+                    "Opportunity account, owner, region, event timestamp, and brief "
+                    "must match the selected source event."
                 )
         cursor = connection.execute(
             """
