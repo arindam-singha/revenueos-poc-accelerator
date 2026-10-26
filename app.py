@@ -9,9 +9,11 @@ from database import (
     get_plan,
     get_recent_plans,
     get_review_decisions,
+    get_sla_triggers,
     initialize_database,
+    sync_sla_triggers,
 )
-from sla_monitor import get_sla_status
+from sla_monitor import get_business_day_age, get_sla_deadlines, get_sla_status
 from workflow import create_plan, review_plan
 
 
@@ -31,6 +33,10 @@ def load_selected_example():
         st.session_state.company = example["company"]
         st.session_state.industry = example["industry"]
         st.session_state.brief = example["brief"]
+        st.session_state.opportunity_id = example["opportunity_id"]
+        st.session_state.owner = example["owner"]
+        st.session_state.region = example["region"]
+        st.session_state.event_timestamp = example["timestamp"]
 
 
 st.set_page_config(page_title="RevenueOS POC Accelerator", page_icon="🚀", layout="wide")
@@ -71,11 +77,24 @@ with st.form("brief_form"):
             "desired outcomes, and any constraints."
         ),
     )
+    opportunity_id = st.text_input("Opportunity ID", key="opportunity_id")
+    owner = st.text_input(
+        "Opportunity owner",
+        key="owner",
+        placeholder="Required for SLA ownership",
+    )
+    region = st.text_input("Region", key="region")
+    event_timestamp = st.text_input(
+        "Original opportunity event timestamp (ISO 8601 with timezone)",
+        key="event_timestamp",
+        placeholder="2026-10-26T08:30:00Z",
+        help="The SLA starts from this event timestamp, not from plan creation.",
+    )
     submitted = st.form_submit_button("Generate POC plan", type="primary")
 
 if submitted:
-    if not company.strip() or not brief.strip():
-        st.error("Enter a company name and customer brief to generate a plan.")
+    if not company.strip() or not brief.strip() or not owner.strip() or not event_timestamp.strip():
+        st.error("Enter a company, customer brief, owner, and original event timestamp.")
     else:
         try:
             with st.spinner("Building your POC plan..."):
@@ -85,11 +104,16 @@ if submitted:
                     brief=brief.strip(),
                     database_path=DATABASE_PATH,
                     data_dir=DATA_DIR,
+                    event_timestamp=event_timestamp.strip(),
+                    owner=owner.strip(),
+                    opportunity_id=opportunity_id.strip() or None,
+                    region=region.strip() or None,
                 )
             st.session_state["active_plan_id"] = plan_id
         except (AgentError, OSError, ValueError, sqlite3.Error) as error:
             st.error(f"Plan generation failed: {error}")
 
+sync_sla_triggers(DATABASE_PATH)
 recent_plans = get_recent_plans(DATABASE_PATH, limit=10)
 if recent_plans:
     plan_ids = [item["id"] for item in recent_plans]
@@ -117,6 +141,33 @@ if active_plan:
     st.caption(
         f'Plan ID {active_plan["id"]} · Reviewer role: **US Solution Architect**'
     )
+    if active_plan["event_timestamp"] and active_plan["owner"]:
+        amber_at, due_at = get_sla_deadlines(active_plan["event_timestamp"])
+        sla_status = get_sla_status(
+            active_plan["event_timestamp"],
+            first_pickup_at=next(
+                (
+                    decision["timestamp"]
+                    for decision in reversed(
+                        get_review_decisions(DATABASE_PATH, active_plan["id"])
+                    )
+                ),
+                None,
+            ),
+        )
+        st.metric("Pickup SLA", sla_status)
+        st.caption(
+            f'Original event: {active_plan["event_timestamp"]} · '
+            f'Owner: {active_plan["owner"]} · '
+            f'Business-day age: {get_business_day_age(active_plan["event_timestamp"])} · '
+            f'Amber at {amber_at.isoformat(timespec="minutes")} ET · '
+            f'Due {due_at.isoformat(timespec="minutes")} ET'
+        )
+    else:
+        st.warning(
+            "SLA unavailable: this legacy brief has no original event timestamp "
+            "or owner. Plan creation time is not used as a substitute."
+        )
 
     if plan.get("proposed_solution"):
         st.subheader("Proposed solution")
@@ -255,8 +306,32 @@ if not recent_plans:
     st.info("Your generated plans will appear here.")
 else:
     for item in recent_plans:
-        status = get_sla_status(item["created_at"], item["sla_due_at"], item["status"])
+        if item["event_timestamp"] and item["owner"]:
+            status = get_sla_status(
+                item["event_timestamp"],
+                first_pickup_at=item["first_pickup_at"],
+            )
+            age = f'{get_business_day_age(item["event_timestamp"])} business day(s)'
+        else:
+            status = "Unavailable — missing original event timestamp or owner"
+            age = "unknown age"
         st.markdown(
             f'**{item["company"]}** · {item["title"]} · '
-            f'{item["created_at"][:16].replace("T", " ")} · SLA: **{status}**'
+            f'{item["event_timestamp"]} · Owner: {item["owner"]} · '
+            f'Age: {age} · SLA: **{status}**'
         )
+
+st.divider()
+st.header("SLA breach trigger log")
+triggers = get_sla_triggers(DATABASE_PATH)
+if not triggers:
+    st.info("No pickup SLA breaches have been triggered.")
+else:
+    for trigger in triggers:
+        with st.expander(
+            f'Plan {trigger["plan_id"]} · Brief {trigger["brief_id"]} · '
+            f'{trigger["status"]} · Owner: {trigger["owner"]}'
+        ):
+            st.write(f'Breach timestamp: {trigger["breach_timestamp"]}')
+            st.write(f'Draft reference: {trigger["current_draft_reference"]}')
+            st.json(json.loads(trigger["draft_json"]))

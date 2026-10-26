@@ -1,7 +1,7 @@
 import json
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 from agent import generate_plan
@@ -9,15 +9,22 @@ from database import (
     get_plan,
     get_recent_plans,
     get_review_decisions,
+    get_sla_triggers,
     initialize_database,
+    sync_sla_triggers,
 )
 from retrieval import retrieve_context
-from sla_monitor import get_sla_status
+from sla_monitor import (
+    get_business_day_age,
+    get_sla_deadlines,
+    get_sla_status,
+)
 from workflow import create_plan, review_plan
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_DIR / "data"
+EVENT_TIMESTAMP = "2026-10-26T08:30:00Z"
 
 
 class RetrievalTests(unittest.TestCase):
@@ -132,6 +139,10 @@ class WorkflowTests(unittest.TestCase):
                 brief="We need to improve CRM data and automate lead routing.",
                 database_path=database_path,
                 data_dir=DATA_DIR,
+                event_timestamp=EVENT_TIMESTAMP,
+                owner="Avery Morgan",
+                opportunity_id="opp-test",
+                region="US",
                 api_key="",
             )
             self.assertGreater(plan_id, 0)
@@ -140,6 +151,9 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(1, len(saved))
             self.assertEqual(plan_id, saved[0]["id"])
             self.assertEqual("Acme", saved[0]["company"])
+            self.assertEqual("Avery Morgan", saved[0]["owner"])
+            self.assertEqual("opp-test", saved[0]["opportunity_id"])
+            self.assertEqual(EVENT_TIMESTAMP, saved[0]["event_timestamp"])
             self.assertEqual(plan["title"], json.loads(saved[0]["plan_json"])["title"])
             self.assertGreater(
                 datetime.fromisoformat(saved[0]["sla_due_at"]),
@@ -155,6 +169,10 @@ class WorkflowTests(unittest.TestCase):
                 brief="We need to improve CRM data and automate lead routing.",
                 database_path=database_path,
                 data_dir=DATA_DIR,
+                event_timestamp=EVENT_TIMESTAMP,
+                owner="Avery Morgan",
+                opportunity_id="opp-test",
+                region="US",
                 api_key="",
             )
 
@@ -217,6 +235,10 @@ class WorkflowTests(unittest.TestCase):
                 brief="We need to improve CRM data.",
                 database_path=database_path,
                 data_dir=DATA_DIR,
+                event_timestamp=EVENT_TIMESTAMP,
+                owner="Avery Morgan",
+                opportunity_id="opp-test",
+                region="US",
                 api_key="",
             )
             with self.assertRaisesRegex(ValueError, "does not exist"):
@@ -236,21 +258,120 @@ class WorkflowTests(unittest.TestCase):
 
 
 class SlaTests(unittest.TestCase):
-    def test_statuses_include_complete_at_risk_and_breached(self):
-        now = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        created = now.isoformat()
+    def test_deadlines_exclude_weekends_in_us_eastern(self):
+        amber_at, due_at = get_sla_deadlines("2026-10-23T15:00:00-04:00")
+        self.assertEqual(datetime.fromisoformat("2026-10-26T15:00:00-04:00"), amber_at)
+        self.assertEqual(datetime.fromisoformat("2026-10-27T15:00:00-04:00"), due_at)
+
+        weekend_amber, weekend_due = get_sla_deadlines("2026-10-24T11:00:00-04:00")
+        self.assertEqual(datetime.fromisoformat("2026-10-26T11:00:00-04:00"), weekend_amber)
+        self.assertEqual(datetime.fromisoformat("2026-10-27T11:00:00-04:00"), weekend_due)
+
+    def test_deadline_preserves_eastern_time_across_daylight_saving_change(self):
+        amber_at, due_at = get_sla_deadlines("2026-10-30T15:00:00-04:00")
+        self.assertEqual(datetime.fromisoformat("2026-11-02T15:00:00-05:00"), amber_at)
+        self.assertEqual(datetime.fromisoformat("2026-11-03T15:00:00-05:00"), due_at)
+
+    def test_green_amber_red_and_business_day_age(self):
+        event_timestamp = "2026-10-23T15:00:00-04:00"
         self.assertEqual(
-            "Complete",
-            get_sla_status(created, (now - timedelta(minutes=1)).isoformat(), "complete", now),
+            "Green",
+            get_sla_status(
+                event_timestamp,
+                now=datetime.fromisoformat("2026-10-26T14:59:00-04:00"),
+            ),
         )
         self.assertEqual(
-            "At risk · 30m left",
-            get_sla_status(created, (now + timedelta(minutes=30)).isoformat(), now=now),
+            "Amber",
+            get_sla_status(
+                event_timestamp,
+                now=datetime.fromisoformat("2026-10-26T15:00:00-04:00"),
+            ),
         )
         self.assertEqual(
-            "Breached",
-            get_sla_status(created, (now - timedelta(minutes=1)).isoformat(), now=now),
+            "Red",
+            get_sla_status(
+                event_timestamp,
+                now=datetime.fromisoformat("2026-10-27T15:00:00-04:00"),
+            ),
         )
+        self.assertEqual(
+            "Green",
+            get_sla_status(
+                event_timestamp,
+                now=datetime.fromisoformat("2026-10-28T12:00:00-04:00"),
+                first_pickup_at="2026-10-26T16:00:00-04:00",
+            ),
+        )
+        self.assertEqual(
+            "Red",
+            get_sla_status(
+                event_timestamp,
+                now=datetime.fromisoformat("2026-10-28T12:00:00-04:00"),
+                first_pickup_at="2026-10-28T10:00:00-04:00",
+            ),
+        )
+        self.assertEqual(
+            1,
+            get_business_day_age(
+                event_timestamp,
+                now=datetime.fromisoformat("2026-10-26T12:00:00-04:00"),
+            ),
+        )
+
+    def test_plan_due_time_comes_from_original_event_timestamp(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            database_path = Path(temporary_directory) / "event-deadline.sqlite3"
+            _, plan_id = create_plan(
+                company="Acme",
+                industry="Financial services",
+                brief="Test brief.",
+                database_path=database_path,
+                data_dir=DATA_DIR,
+                event_timestamp="2026-10-23T15:00:00-04:00",
+                owner="Avery Morgan",
+                api_key="",
+            )
+            saved = get_plan(database_path, plan_id)
+            self.assertEqual(
+                datetime.fromisoformat("2026-10-27T15:00:00-04:00"),
+                datetime.fromisoformat(saved["sla_due_at"]),
+            )
+            self.assertEqual("2026-10-23T15:00:00-04:00", saved["event_timestamp"])
+
+    def test_breach_trigger_is_persisted_once_with_draft_reference(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            database_path = Path(temporary_directory) / "breach.sqlite3"
+            _, plan_id = create_plan(
+                company="Acme",
+                industry="Financial services",
+                brief="Test brief.",
+                database_path=database_path,
+                data_dir=DATA_DIR,
+                event_timestamp="2026-10-23T15:00:00-04:00",
+                owner="Avery Morgan",
+                opportunity_id="opp-breach",
+                api_key="",
+            )
+            breach_time = datetime.fromisoformat("2026-10-27T15:00:00-04:00")
+            sync_sla_triggers(database_path, now=breach_time)
+            sync_sla_triggers(database_path, now=datetime.fromisoformat("2026-10-28T10:00:00-04:00"))
+
+            triggers = get_sla_triggers(database_path)
+            self.assertEqual(1, len(triggers))
+            self.assertEqual(plan_id, triggers[0]["plan_id"])
+            self.assertEqual("Avery Morgan", triggers[0]["owner"])
+            self.assertEqual("Red", triggers[0]["status"])
+            self.assertEqual(
+                datetime.fromisoformat("2026-10-27T15:00:00-04:00"),
+                datetime.fromisoformat(triggers[0]["breach_timestamp"]),
+            )
+            self.assertEqual(f"plans:{plan_id}", triggers[0]["current_draft_reference"])
+            self.assertIn("title", json.loads(triggers[0]["draft_json"]))
+
+    def test_missing_original_timestamp_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "original opportunity event timestamp"):
+            get_sla_deadlines("")
 
 
 if __name__ == "__main__":

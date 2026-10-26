@@ -10,9 +10,29 @@ from retrieval import retrieve_context
 REVIEWER_ROLE = "US Solution Architect"
 
 
-def create_plan(company, industry, brief, database_path, data_dir, api_key=None):
+def create_plan(
+    company,
+    industry,
+    brief,
+    database_path,
+    data_dir,
+    event_timestamp,
+    owner,
+    opportunity_id=None,
+    region=None,
+    api_key=None,
+):
     initialize_database(database_path)
-    brief_id = save_brief(database_path, company, industry, brief)
+    brief_id = save_brief(
+        database_path,
+        company,
+        industry,
+        brief,
+        event_timestamp=event_timestamp,
+        owner=owner,
+        opportunity_id=opportunity_id,
+        region=region,
+    )
     evidence = retrieve_context(
         query=f"{industry} {brief}",
         data_dir=data_dir,

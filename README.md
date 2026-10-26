@@ -8,7 +8,8 @@ A small Streamlit MVP that turns a customer brief into a structured, evidence-in
 - Lightweight keyword-overlap retrieval over sample briefs and POC templates.
 - Deterministic, structured plan generation when no API key is configured.
 - Optional LLM-generated plan using an OpenAI-compatible Chat Completions endpoint.
-- SQLite storage for submitted briefs and plans, with a four-hour SLA status indicator.
+- SQLite storage for opportunity event timestamps, plans, review decisions, and SLA breach triggers.
+- Two-business-day pickup SLA calculated in US Eastern time with Green, Amber, and Red statuses.
 - US Solution Architect accept, edit, and reject actions, with timestamped SQLite decision history.
 - JSON plan download and recent-plan list.
 
@@ -23,6 +24,12 @@ streamlit run app.py
 ```
 
 The app creates `data/revenueos.db` on first run. To use LLM generation, set `OPENAI_API_KEY` in the environment before starting Streamlit. `OPENAI_MODEL` and `OPENAI_BASE_URL` can optionally override the defaults. API or invalid-response errors are surfaced in the UI; they are not silently presented as successful fallback output.
+
+### Pickup SLA
+
+The SLA clock starts at the opportunity's original ISO 8601 event timestamp, including its timezone offset; plan creation time is never substituted. Timestamps are converted to US Eastern time (`America/New_York`). The pickup deadline is two business days after the event, preserving its Eastern local time and skipping Saturdays and Sundays. **Green** means less than one business day has elapsed or the plan was picked up by the deadline; **Amber** means at least one business day has elapsed and the deadline has not been reached; **Red** means the deadline passed without an on-time reviewer decision. The first persisted US Solution Architect review decision (accept, edit, or reject) counts as pickup. Breach triggers are stored once per plan with owner, breach time, and a snapshot/reference to the current draft; refreshing the dashboard does not duplicate them. This prototype excludes weekends but does not account for US public holidays.
+
+New plans require both an opportunity owner and an explicit timezone-aware original event timestamp. Legacy database rows without these fields show SLA as unavailable rather than deriving it from plan creation.
 
 Generate a plan, select it from the current-plan list, then use the US Solution Architect review controls to accept it, save edited plan JSON, or reject it with a reason. The plan status and timestamped decision history are reloaded from SQLite after each action.
 

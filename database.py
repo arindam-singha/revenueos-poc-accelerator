@@ -1,8 +1,10 @@
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
+
+from sla_monitor import get_sla_deadlines, get_sla_status
 
 
 @contextmanager
@@ -28,6 +30,10 @@ def initialize_database(database_path):
                 company TEXT NOT NULL,
                 industry TEXT NOT NULL,
                 brief_text TEXT NOT NULL,
+                opportunity_id TEXT,
+                owner TEXT,
+                region TEXT,
+                event_timestamp TEXT,
                 created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS plans (
@@ -48,27 +54,81 @@ def initialize_database(database_path):
                 edit_details TEXT,
                 rejection_reason TEXT
             );
+            CREATE TABLE IF NOT EXISTS sla_triggers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                brief_id INTEGER NOT NULL REFERENCES briefs(id),
+                plan_id INTEGER NOT NULL UNIQUE REFERENCES plans(id),
+                owner TEXT NOT NULL,
+                breach_timestamp TEXT NOT NULL,
+                status TEXT NOT NULL,
+                current_draft_reference TEXT NOT NULL,
+                draft_json TEXT NOT NULL
+            );
             """
         )
+        brief_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(briefs)").fetchall()
+        }
+        for column_name in (
+            "opportunity_id",
+            "owner",
+            "region",
+            "event_timestamp",
+        ):
+            if column_name not in brief_columns:
+                connection.execute(
+                    f"ALTER TABLE briefs ADD COLUMN {column_name} TEXT"
+                )
 
 
-def save_brief(database_path, company, industry, brief_text):
+def save_brief(
+    database_path,
+    company,
+    industry,
+    brief_text,
+    event_timestamp,
+    owner,
+    opportunity_id=None,
+    region=None,
+):
+    if not owner or not owner.strip():
+        raise ValueError("Opportunity owner is required for SLA monitoring.")
+    get_sla_deadlines(event_timestamp)
     created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with _connect(database_path) as connection:
         cursor = connection.execute(
             """
-            INSERT INTO briefs (company, industry, brief_text, created_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO briefs (
+                company, industry, brief_text, opportunity_id, owner, region,
+                event_timestamp, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (company, industry, brief_text, created_at),
+            (
+                company,
+                industry,
+                brief_text,
+                opportunity_id,
+                owner.strip(),
+                region,
+                event_timestamp,
+                created_at,
+            ),
         )
         return cursor.lastrowid
 
 
-def save_plan(database_path, brief_id, plan, sla_hours=4):
+def save_plan(database_path, brief_id, plan):
     created_at = datetime.now(timezone.utc)
-    sla_due_at = created_at + timedelta(hours=sla_hours)
     with _connect(database_path) as connection:
+        brief = connection.execute(
+            "SELECT event_timestamp FROM briefs WHERE id = ?",
+            (brief_id,),
+        ).fetchone()
+        if brief is None:
+            raise ValueError(f"Brief {brief_id} does not exist.")
+        _, sla_due_at = get_sla_deadlines(brief["event_timestamp"])
         cursor = connection.execute(
             """
             INSERT INTO plans (brief_id, title, plan_json, status, created_at, sla_due_at)
@@ -89,8 +149,16 @@ def get_recent_plans(database_path, limit=10):
     with _connect(database_path) as connection:
         rows = connection.execute(
             """
-            SELECT plans.id, briefs.company, plans.title, plans.status,
-                   plans.created_at, plans.sla_due_at, plans.plan_json
+            SELECT plans.id, plans.brief_id, briefs.company, briefs.industry,
+                   briefs.brief_text, briefs.opportunity_id, briefs.owner,
+                   briefs.region, briefs.event_timestamp, plans.title,
+                   plans.status, plans.created_at, plans.sla_due_at,
+                   plans.plan_json,
+                   (
+                       SELECT MIN(review_decisions.timestamp)
+                       FROM review_decisions
+                       WHERE review_decisions.plan_id = plans.id
+                   ) AS first_pickup_at
             FROM plans
             JOIN briefs ON briefs.id = plans.brief_id
             ORDER BY plans.created_at DESC, plans.id DESC
@@ -106,8 +174,10 @@ def get_plan(database_path, plan_id):
         row = connection.execute(
             """
             SELECT plans.id, plans.brief_id, briefs.company, briefs.industry,
-                   briefs.brief_text, plans.title, plans.plan_json, plans.status,
-                   plans.created_at, plans.sla_due_at
+                   briefs.brief_text, briefs.opportunity_id, briefs.owner,
+                   briefs.region, briefs.event_timestamp, plans.title,
+                   plans.plan_json, plans.status, plans.created_at,
+                   plans.sla_due_at
             FROM plans
             JOIN briefs ON briefs.id = plans.brief_id
             WHERE plans.id = ?
@@ -119,6 +189,70 @@ def get_plan(database_path, plan_id):
     result = dict(row)
     result["plan"] = json.loads(result["plan_json"])
     return result
+
+
+def sync_sla_triggers(database_path, now=None):
+    current_time = now or datetime.now(timezone.utc)
+    if current_time.tzinfo is None:
+        raise ValueError("Current time must include a timezone.")
+    current_time = current_time.astimezone(timezone.utc)
+
+    with _connect(database_path) as connection:
+        plans = connection.execute(
+            """
+            SELECT plans.id AS plan_id, plans.brief_id, plans.plan_json,
+                   briefs.owner, briefs.event_timestamp,
+                   (
+                       SELECT MIN(review_decisions.timestamp)
+                       FROM review_decisions
+                       WHERE review_decisions.plan_id = plans.id
+                   ) AS first_pickup_at
+            FROM plans
+            JOIN briefs ON briefs.id = plans.brief_id
+            WHERE briefs.event_timestamp IS NOT NULL
+            """
+        ).fetchall()
+        for row in plans:
+            status = get_sla_status(
+                row["event_timestamp"],
+                now=current_time,
+                first_pickup_at=row["first_pickup_at"],
+            )
+            if status != "Red":
+                continue
+            _, due_at = get_sla_deadlines(row["event_timestamp"])
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO sla_triggers (
+                    brief_id, plan_id, owner, breach_timestamp, status,
+                    current_draft_reference, draft_json
+                )
+                VALUES (?, ?, ?, ?, 'Red', ?, ?)
+                """,
+                (
+                    row["brief_id"],
+                    row["plan_id"],
+                    row["owner"] or "Unassigned",
+                    due_at.isoformat(timespec="seconds"),
+                    f'plans:{row["plan_id"]}',
+                    row["plan_json"],
+                ),
+            )
+
+
+def get_sla_triggers(database_path, limit=50):
+    with _connect(database_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT id, brief_id, plan_id, owner, breach_timestamp, status,
+                   current_draft_reference, draft_json
+            FROM sla_triggers
+            ORDER BY breach_timestamp DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def get_review_decisions(database_path, plan_id):
