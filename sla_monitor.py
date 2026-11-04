@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta
+import os
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 
@@ -22,12 +23,27 @@ def parse_event_timestamp(timestamp):
     return parsed.astimezone(BUSINESS_TIMEZONE)
 
 
+def _configured_holidays():
+    """Optional comma-separated YYYY-MM-DD holidays in the SLA timezone."""
+    values = os.getenv("SLA_HOLIDAYS", "")
+    holidays = set()
+    for value in values.split(","):
+        value = value.strip()
+        if value:
+            holidays.add(date.fromisoformat(value))
+    return holidays
+
+
+def _is_business_day(day):
+    return day.weekday() < 5 and day not in _configured_holidays()
+
+
 def _add_business_days(timestamp, days):
     result = timestamp.astimezone(BUSINESS_TIMEZONE)
     remaining = days
     while remaining:
         result += timedelta(days=1)
-        if result.weekday() < 5:
+        if _is_business_day(result.date()):
             remaining -= 1
     return result
 
@@ -71,6 +87,6 @@ def get_business_day_age(event_timestamp, now=None):
     cursor = event_time.date()
     while cursor < current_time.date():
         cursor += timedelta(days=1)
-        if cursor.weekday() < 5:
+        if _is_business_day(cursor):
             business_days += 1
     return business_days

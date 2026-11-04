@@ -1,10 +1,14 @@
-# Human judgment and review
+# Human judgment and approval boundary
 
-Generated plans are starting points for a human-led customer conversation, not commitments or technical feasibility approvals.
+Ollama produces a structured draft; it cannot accept, reject, or send a plan. The named US Solution Architect must make an explicit SQLite-persisted decision in the dashboard. Editing is not acceptance, and the edited plan remains a draft until accepted.
 
-- Confirm the actual business objective, baseline, target thresholds, stakeholders, and scope with the customer.
-- Validate data permissions, privacy, security, integration feasibility, and retention requirements with the responsible owners.
-- Review timelines against access, procurement, and technical dependencies before sharing externally.
-- Treat retrieved examples and templates as internal planning guidance; they are not evidence that a proposed outcome is guaranteed.
-- Review all LLM-generated content for unsupported claims or customer-specific assumptions.
-- Stop and escalate if the brief implies sensitive data use, high-impact decisions, or an unapproved production integration.
+The reviewer is accountable for:
+
+- Confirming the opportunity context, stated customer objective, scope, exclusions, baseline, and success thresholds.
+- Checking that template reuse is justified by the retrieved content and that regional or process-specific assumptions are not represented as customer facts.
+- Validating data access, privacy, security, retention, audit, and integration feasibility with the responsible customer owners.
+- Reviewing the handoff, engineering dependencies, delivery estimate, and unresolved questions with the Delivery Lead.
+- Ensuring human review and escalation remain in place for identity, lending, insurance, fraud, and other consequential decisions.
+- Rejecting unsupported claims or requesting changes before any customer-facing use.
+
+Model output, retrieval explanations, and template metrics are decision support, not guarantees, regulatory interpretations, approval evidence, or commitments. Retrieval feedback is an inspectable ranking adjustment; it does not train a model or replace reviewer judgment.

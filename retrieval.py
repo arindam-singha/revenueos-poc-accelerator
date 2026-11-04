@@ -25,12 +25,13 @@ def _load_json(path):
         return json.load(file)
 
 
-def retrieve_context(query, data_dir, limit=4):
-    """Return the best matching templates and sample briefs using token overlap."""
+def retrieve_context(query, data_dir, limit=4, ranking_feedback=None):
+    """Rank retrieved context by lexical relevance plus bounded reviewer feedback."""
     query_tokens = _tokens(query)
     if not query_tokens:
         return []
 
+    ranking_feedback = ranking_feedback or {}
     data_dir = Path(data_dir)
     sources = (
         ("template", _load_json(data_dir / "templates.json")),
@@ -47,14 +48,21 @@ def retrieve_context(query, data_dir, limit=4):
             document_tokens = _tokens(searchable)
             overlap = query_tokens.intersection(document_tokens)
             if overlap:
-                score = len(overlap) / len(query_tokens)
+                base_score = len(overlap) / len(query_tokens)
+                adjustment = (
+                    max(-0.2, min(0.2, ranking_feedback.get(document["id"], 0.0)))
+                    if source_type == "template"
+                    else 0.0
+                )
                 matches.append(
                     {
                         "id": document["id"],
                         "type": source_type,
                         "title": document.get("title", document.get("company", "")),
                         "reason": "Matched: " + ", ".join(sorted(overlap)[:6]),
-                        "score": score,
+                        "score": max(0.0, min(1.0, base_score + adjustment)),
+                        "base_score": base_score,
+                        "ranking_adjustment": adjustment,
                         "content": document,
                     }
                 )
